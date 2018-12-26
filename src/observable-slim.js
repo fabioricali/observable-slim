@@ -1,23 +1,9 @@
-/*
- * 	Observable Slim
- *	Version 0.1.4
- * 	https://github.com/elliotnb/observable-slim
- *
- * 	Licensed under the MIT license:
- * 	http://www.opensource.org/licenses/MIT
- *
- *	Observable Slim is a singleton that allows you to observe changes made to an object and any nested
- *	children of that object. It is intended to assist with one-way data binding, that is, in MVC parlance,
- *	reflecting changes in the model to the view. Observable Slim aspires to be as lightweight and easily
- *	understood as possible. Minifies down to roughly 3000 characters.
- */
-
 const sanitize = require('./helpers/sanitize');
-const _getPath = require('./helpers/get-path');
-const _getProperty = require('./helpers/get-property');
+const getPath = require('./helpers/get-path');
+const getProperty = require('./helpers/get-property');
+const toJSONPointer = require('./helpers/to-jsonpointer');
 
 const ObservableSlim = (function () {
-    //paths = [];
     // An array that stores all of the observables created through the public create() method below.
     const observables = [];
     // An array of all the objects that we have assigned Proxies to
@@ -47,11 +33,11 @@ const ObservableSlim = (function () {
      */
     const _create = function (target, domDelay, originalObservable, originalPath) {
 
+        const autoDomDelay = domDelay == null;
         let observable = originalObservable || null;
 
         // record the nested path taken to access this object -- if there was no path then we provide the first empty entry
         let path = originalPath || [{target, property: ''}];
-        //paths.push(path);
 
         // in order to accurately report the 'previous value' of the 'length' property on an Array
         // we must use a helper property because intercepting a length change is not always possible as of 8/13/2018 in
@@ -60,50 +46,19 @@ const ObservableSlim = (function () {
 
         let changes = [];
 
-        /*	Function: _getPath
-                Returns a string of the nested path (in relation to the top-level observed object)
-                of the property being modified or deleted.
-            Parameters:
-                target - the object whose property is being modified or deleted.
-                property - the string name of the property
-                jsonPointer - optional, set to true if the string path should be formatted as a JSON pointer.
-
-            Returns:
-                String of the nested path (e.g., hello.testing.1.bar or, if JSON pointer, /hello/testing/1/bar
-        */
-        let _getPath = function (target, property, jsonPointer) {
-
-            let fullPath = '';
-            let lastTarget = null;
-
-            // loop over each item in the path and append it to full path
-            for (let i = 0; i < path.length; i++) {
-
-                // if the current object was a member of an array, it's possible that the array was at one point
-                // mutated and would cause the position of the current object in that array to change. we perform an indexOf
-                // lookup here to determine the current position of that object in the array before we add it to fullPath
-                if (lastTarget instanceof Array && !isNaN(path[i].property)) {
-                    path[i].property = lastTarget.indexOf(path[i].target);
-                }
-
-                fullPath = fullPath + '.' + path[i].property;
-                lastTarget = path[i].target;
-            }
-
-            // add the current property
-            fullPath = fullPath + '.' + property;
-
-            // remove the beginning two dots -- ..foo.bar becomes foo.bar (the first item in the nested chain doesn't have a property name)
-            fullPath = fullPath.substring(2);
-
-            if (jsonPointer === true) fullPath = '/' + fullPath.replace(/\./g, '/');
-
-            return fullPath;
-        };
+        let calls = 0;
 
         let _notifyObservers = function (numChanges) {
 
-            // execute observer functions on a 10ms settimeout, this prevents the observer functions from being executed
+            // reset calls number after 10ms
+            if (autoDomDelay) {
+                domDelay = ++calls > 1;
+                setTimeout(function () {
+                    calls = 0;
+                }, 10);
+            }
+
+            // execute observer functions on a 10ms setTimeout, this prevents the observer functions from being executed
             // separately on every change -- this is necessary because the observer functions will often trigger UI updates
             if (domDelay === true) {
                 setTimeout(function () {
@@ -145,9 +100,9 @@ const ObservableSlim = (function () {
                 } else if (property === '__getParent') {
                     return function (i) {
                         if (typeof i === 'undefined') i = 1;
-                        let parentPath = _getPath(target, '__getParent').split('.');
+                        let parentPath = getPath(target, '__getParent', path).split('.');
                         parentPath.splice(-(i + 1), (i + 1));
-                        return _getProperty(observable.parentProxy, parentPath.join('.'));
+                        return getProperty(observable.parentProxy, parentPath.join('.'));
                     }
                 }
 
@@ -204,7 +159,7 @@ const ObservableSlim = (function () {
                 // in order to report what the previous value was, we must make a copy of it before it is deleted
                 let previousValue = Object.assign({}, target);
 
-                const currentPath = _getPath(target, property);
+                const currentPath = getPath(target, property, path);
 
                 // record the deletion that just took place
                 changes.push({
@@ -214,7 +169,7 @@ const ObservableSlim = (function () {
                     newValue: null,
                     previousValue: previousValue[property],
                     currentPath,
-                    jsonPointer: _getPath(target, property, true),
+                    jsonPointer: toJSONPointer(currentPath),
                     proxy
                 });
 
@@ -295,7 +250,7 @@ const ObservableSlim = (function () {
                     let type = 'update';
                     if (typeOfTargetProp === 'undefined') type = 'add';
 
-                    const currentPath = _getPath(target, property);
+                    const currentPath = getPath(target, property, path);
 
                     if (typeof _manipulate === 'function') {
                         value = _manipulate(value, receiver[property], currentPath);
@@ -309,7 +264,7 @@ const ObservableSlim = (function () {
                         newValue: value,
                         previousValue: receiver[property],
                         currentPath,
-                        jsonPointer: _getPath(target, property, true),
+                        jsonPointer: toJSONPointer(currentPath),
                         proxy
                     });
 

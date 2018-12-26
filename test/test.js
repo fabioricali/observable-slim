@@ -1,7 +1,7 @@
 let chai = require('chai');
 let expect = chai.expect;
 let assert = chai.assert;
-let ObservableSlim = require("../src/observable-slim.js")();
+let ObservableSlim = require("../src/observable-slim.js");
 global.NativeProxy = global.Proxy;
 global.Proxy = undefined;
 require("../proxy.js");
